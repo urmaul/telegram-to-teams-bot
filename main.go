@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
@@ -38,6 +39,10 @@ func main() {
 	}
 
 	webhookURL := os.Getenv("MSTEAMS_WEBHOOK_URL")
+	chatID, err := strconv.ParseInt(os.Getenv("TELEGRAM_CHAT_ID"), 10, 64)
+	if err != nil {
+		log.Panic(err)
+	}
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
@@ -47,12 +52,11 @@ func main() {
 	updates, err := bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		fmt.Printf("update: %+v\n", update)
 		if update.Message == nil { // Ignore non-Message updates
 			continue
 		}
 
-		if update.Message.Chat == nil || update.Message.Chat.ID != -999999 { // Forward only messages from selected chat
+		if update.Message.Chat == nil || update.Message.Chat.ID != chatID { // Forward only messages from selected chat
 			continue
 		}
 
