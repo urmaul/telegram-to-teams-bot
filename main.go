@@ -7,11 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 
 	"github.com/alexcesaro/log/stdlog"
+	"github.com/mkideal/cli"
 )
 
 type msteamsMessage struct {
@@ -36,48 +36,59 @@ func pushToMsteams(msg string, webhookURL string) error {
 	return nil
 }
 
+type argT struct {
+	cli.Helper
+	TelegramToken     string `cli:"*telegram-token" usage:"telegram bot token" dft:"$TELEGRAM_TOKEN"`
+	TelegramChatID    int64  `cli:"*telegram-chat-id" usage:"id of telegram chat to forward" dft:"$TELEGRAM_CHAT_ID"`
+	MSTeamsWebhookURL string `cli:"*msteams-webhook-url" usage:"webhook url to post to msteams channel" dft:"$MSTEAMS_WEBHOOK_URL"`
+	Log               string `cli:"log" usage:"log level"`
+}
+
 func main() {
-	logger := stdlog.GetFromFlags()
+	os.Exit(cli.Run(new(argT), func(ctx *cli.Context) error {
+		argv := ctx.Argv().(*argT)
 
-	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_TOKEN"))
-	if err != nil {
-		log.Panic(err)
-	}
+		logger := stdlog.GetFromFlags()
 
-	webhookURL := os.Getenv("MSTEAMS_WEBHOOK_URL")
-
-	chatID, err := strconv.ParseInt(os.Getenv("TELEGRAM_CHAT_ID"), 10, 64)
-	if err != nil {
-		log.Panic(err)
-	}
-	logger.Debugf("Telegram chat ID: %d", chatID)
-
-	logger.Infof("Authorized on account %s", bot.Self.UserName)
-
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 10
-
-	updates, err := bot.GetUpdatesChan(u)
-
-	for update := range updates {
-		logger.Debugf("Got update: %+v", update)
-
-		if update.Message == nil { // Ignore non-Message updates
-			continue
+		bot, err := tgbotapi.NewBotAPI(argv.TelegramToken)
+		if err != nil {
+			log.Panic(err)
 		}
 
-		if update.Message.Chat == nil || update.Message.Chat.ID != chatID { // Forward only messages from selected chat
-			continue
-		}
+		webhookURL := argv.MSTeamsWebhookURL
 
-		msg := fmt.Sprintf("@%s: %s", update.Message.From.UserName, update.Message.Text)
+		chatID := argv.TelegramChatID
+		logger.Debugf("Telegram chat ID: %d", chatID)
 
-		go func() {
-			logger.Debugf("Sending message: %s", msg)
-			err := pushToMsteams(msg, webhookURL)
-			if err != nil {
-				logger.Error(err)
+		logger.Infof("Authorized on account %s", bot.Self.UserName)
+
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 10
+
+		updates, err := bot.GetUpdatesChan(u)
+
+		for update := range updates {
+			logger.Debugf("Got update: %+v", update)
+
+			if update.Message == nil { // Ignore non-Message updates
+				continue
 			}
-		}()
-	}
+
+			if update.Message.Chat == nil || update.Message.Chat.ID != chatID { // Forward only messages from selected chat
+				continue
+			}
+
+			msg := fmt.Sprintf("@%s: %s", update.Message.From.UserName, update.Message.Text)
+
+			go func() {
+				logger.Debugf("Sending message: %s", msg)
+				err := pushToMsteams(msg, webhookURL)
+				if err != nil {
+					logger.Error(err)
+				}
+			}()
+		}
+
+		return nil
+	}))
 }
