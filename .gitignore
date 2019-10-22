@@ -6,6 +6,7 @@
 *.dll
 *.so
 *.dylib
+telegram-to-teams-bot
 
 # Test binary, build with `go test -c`
 *.test
