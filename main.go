@@ -52,7 +52,7 @@ func main() {
 
 		bot, err := tgbotapi.NewBotAPI(argv.TelegramToken)
 		if err != nil {
-			log.Panic(err)
+			log.Fatalf("Error when trying to connect to Telegram: %s", err)
 		}
 
 		webhookURL := argv.MSTeamsWebhookURL
