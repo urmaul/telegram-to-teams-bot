@@ -74,11 +74,35 @@ func main() {
 				continue
 			}
 
+			logger.Debugf("Message is: %+v", update.Message)
+
 			if update.Message.Chat == nil || update.Message.Chat.ID != chatID { // Forward only messages from selected chat
+				logger.Debugf("Ignoring message from chat %+v", update.Message.Chat)
 				continue
 			}
 
-			msg := fmt.Sprintf("@%s: %s", update.Message.From.UserName, update.Message.Text)
+			// Build message text
+
+			text := update.Message.Text
+			if update.Message.Photo != nil {
+				text = "(photo)"
+			}
+			if update.Message.Video != nil {
+				text = "(video)"
+			}
+			if update.Message.Audio != nil {
+				text = "(audio)"
+			}
+			if update.Message.Sticker != nil {
+				text = fmt.Sprintf("(%s sticker)", update.Message.Sticker.Emoji)
+			}
+
+			if text == "" {
+				logger.Errorf("Could not get body for message %+v", update.Message)
+				continue
+			}
+
+			msg := fmt.Sprintf("@%s: %s", update.Message.From.UserName, text)
 
 			go func() {
 				logger.Debugf("Sending message: %s", msg)
