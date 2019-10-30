@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 
-	"github.com/alexcesaro/log/stdlog"
 	"github.com/mkideal/cli"
+	"github.com/sirupsen/logrus"
 )
 
 type msteamsMessage struct {
@@ -36,29 +35,56 @@ func pushToMsteams(msg string, webhookURL string) error {
 	return nil
 }
 
+func getMessageText(message *tgbotapi.Message) string {
+	text := message.Text
+	if message.Photo != nil {
+		text = "(photo)"
+	}
+	if message.Video != nil {
+		text = "(video)"
+	}
+	if message.Audio != nil {
+		text = "(audio)"
+	}
+	if message.Sticker != nil {
+		text = fmt.Sprintf("(%s sticker)", message.Sticker.Emoji)
+	}
+
+	return text
+}
+
 type argT struct {
 	cli.Helper
-	TelegramToken     string `cli:"*telegram-token" usage:"telegram bot token" dft:"$TELEGRAM_TOKEN"`
-	TelegramChatID    int64  `cli:"*telegram-chat-id" usage:"id of telegram chat to forward" dft:"$TELEGRAM_CHAT_ID"`
-	MSTeamsWebhookURL string `cli:"*msteams-webhook-url" usage:"webhook url to post to msteams channel" dft:"$MSTEAMS_WEBHOOK_URL"`
-	Log               string `cli:"log" usage:"log level"`
+	TelegramToken           string         `cli:"*telegram-token" usage:"telegram bot token" dft:"$TELEGRAM_TOKEN"`
+	TelegramChatID          int64          `cli:"*telegram-chat-id" usage:"id of telegram chat to forward" dft:"$TELEGRAM_CHAT_ID"`
+	MSTeamsWebhookURL       string         `cli:"*msteams-webhook-url" usage:"webhook url to post to msteams channel" dft:"$MSTEAMS_WEBHOOK_URL"`
+	MSTeamsPersonalWebhooks map[int]string `cli:"W" usage:"personal webhooks per telegram user id" dft:"$MSTEAMS_PERSONAL_WEBHOOKS"`
+	Log                     string         `cli:"log" usage:"log level"`
 }
 
 func main() {
 	os.Exit(cli.Run(new(argT), func(ctx *cli.Context) error {
 		argv := ctx.Argv().(*argT)
 
-		logger := stdlog.GetFromFlags()
+		logger := logrus.New()
 
-		bot, err := tgbotapi.NewBotAPI(argv.TelegramToken)
+		logLevel, err := logrus.ParseLevel(argv.Log)
 		if err != nil {
-			log.Fatalf("Error when trying to connect to Telegram: %s", err)
+			logger.Fatalf(err.Error())
 		}
+		logger.SetLevel(logLevel)
 
-		webhookURL := argv.MSTeamsWebhookURL
+		defaultWebhookURL := argv.MSTeamsWebhookURL
+		personalWebhookURLs := argv.MSTeamsPersonalWebhooks
 
 		chatID := argv.TelegramChatID
 		logger.Debugf("Telegram chat ID: %d", chatID)
+		logger.Debugf("Personal webhooks: %+v", personalWebhookURLs)
+
+		bot, err := tgbotapi.NewBotAPI(argv.TelegramToken)
+		if err != nil {
+			logger.Fatalf("Error when trying to connect to Telegram: %s", err)
+		}
 
 		logger.Infof("Authorized on account %s", bot.Self.UserName)
 
@@ -83,26 +109,21 @@ func main() {
 
 			// Build message text
 
-			text := update.Message.Text
-			if update.Message.Photo != nil {
-				text = "(photo)"
-			}
-			if update.Message.Video != nil {
-				text = "(video)"
-			}
-			if update.Message.Audio != nil {
-				text = "(audio)"
-			}
-			if update.Message.Sticker != nil {
-				text = fmt.Sprintf("(%s sticker)", update.Message.Sticker.Emoji)
-			}
-
+			text := getMessageText(update.Message)
 			if text == "" {
 				logger.Errorf("Could not get body for message %+v", update.Message)
 				continue
 			}
 
-			msg := fmt.Sprintf("@%s: %s", update.Message.From.UserName, text)
+			webhookURL, found := personalWebhookURLs[update.Message.From.ID]
+			msg := text
+			if !found {
+				// Use default webhook, provide name inside message
+				msg = fmt.Sprintf("@%s: %s", update.Message.From.UserName, text)
+				webhookURL = defaultWebhookURL
+			}
+
+			// Submit
 
 			go func() {
 				logger.Debugf("Sending message: %s", msg)
